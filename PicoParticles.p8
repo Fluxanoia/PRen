@@ -7,42 +7,92 @@ __lua__
 -- globals
 
 cam = nil
-free_cam = false
-parts = {}
+
+scene_index = 1
+curr_scene = nil
+
+room = nil
+
+notif = ""
+notif_time = 0
+
+o_ready = true
+x_ready = true
 
 -- main loop
 
-function reset_camera()
-	cam = {
-		x_rot = 0,
-		y_rot = 0,
-		z_rot = 0,
-		dist = 100,
-		foc = 20,
-		
-		pos_inv = nil,
-		look_inv = nil
- }
-end
-
 function _init()
 	cls()
-
-	reset_camera()
 	camera(-64, -64)
-	
-	parts = load_particles()
+	reset_camera()
+	reload_scene()
 end
 
-function _update()
-	if btn(🅾️) then
-		parts = load_particles()
+function _update60()
+	-- notification updating
+	if (notif_time > 0) then
+		notif_time -= 1
 	end
-	if btn(❎) then
-		free_cam = not free_cam
+	-- user input
+	input()
+	-- component updating
+	for p in all(
+		curr_scene.particles) do
+		p:update()
 	end
+end
 
-	if free_cam then
+-- state
+
+function reset_camera()
+	cam = view()
+end
+
+function reload_scene()
+	room = cube()
+
+	curr_scene = get_scene(
+		scene_index)
+	curr_scene:populate()
+	
+	notif = "loaded "
+		.. curr_scene.name
+		.. ".scene"
+	notif_time = 60
+end
+
+-- user input
+
+function input()
+	-- scene switching
+	if not btn(🅾️) then
+		o_ready = true
+	elseif o_ready then
+		switch_scenes()
+		o_ready = false
+	end
+	-- camera mode switching
+	if not btn(❎)  then
+		x_ready = true
+	elseif x_ready then
+		cam.free = not cam.free
+		x_ready = false
+	end
+	-- camera movement
+	camera_movement()
+end
+
+function switch_scenes()
+	scene_index += 1
+		if (scene_index 
+			> scene_count()) then
+			scene_index = 1
+		end
+	reload_scene()
+end
+
+function camera_movement()
+	if cam.free then
 		if (btn(⬆️)) then
 			cam.x_rot -= 1
 		end
@@ -56,19 +106,20 @@ function _update()
 			cam.y_rot += 1
 		end
 	else
-		cam.z_rot += 0.6
-	end
-	
-	for p in all(parts) do
-		p:update()
+		cam.x_rot += 0.6
+		cam.y_rot += 0.3
 	end
 end
 
+
+-->8
+-- rendering
+
 function _draw()
  cls()
- 
+ -- prepare camera
  cmat = rot(cam.x_rot,
- 	cam.y_rot, cam.z_rot)
+ 	cam.y_rot, 0)
  cam.pos_inv = cmat:apply(
  	vec3(0, 0, cam.dist))
  cam.pos_inv:scale(-1)
@@ -80,31 +131,74 @@ function _draw()
  	reset_camera()
  	return
  end
-
-	for p in all(parts) do
+ -- draw room
+ for f in all(room) do
+ 	_1 = raster(f.p1)[2]
+ 	_2 = raster(f.p2)[2]
+ 	_3 = raster(f.p3)[2]
+ 	line(_1.x, _1.y,
+ 		_2.x, _2.y, f.c)
+ 	line(_1.x, _1.y,
+ 		_3.x, _3.y, f.c)
+ 	line(_3.x, _3.y,
+ 		_2.x, _2.y, f.c)
+ end
+	-- draw particles
+	for p in all(
+		curr_scene.particles) do
 	 ras = raster(p.pos)
 	 if (ras[1]) then
 	 	v = ras[2]
 	 	pset(v.x, v.y, p.c)
 	 end
  end
+ -- draw notifications
+ if (notif_time > 0) then
+ 	rectfill(-64, 58, 
+ 		64, 64, black)
+ 	print(notif, -64, 58, white)
+ end
 end
 
-function raster(p)
-	v = vec2(0, 0)
+function to_camera_space(p)
 	p = p:copy()
  p:sum(cam.pos_inv)
- p = cam.look_inv:apply(p)
+ return cam.look_inv:apply(p)
+end
+
+-- rasterise a 3d point
+function raster(p)
+	v = vec2(0, 0)
+	p = to_camera_space(p)
  if (p.z != 0) then
 		s = cam.foc / abs(p.z)
- 	v.x = p.x * s 
- 	v.y = -p.y * s
+ 	v.x = flr(p.x * s) 
+ 	v.y = flr(-p.y * s)
 	end
 	return { p.z < 0, v }
 end
-
 -->8
 -- vectors and matrices
+
+--[[
+
+	view object
+
+--]]
+
+function view()
+	return {
+		x_rot = 0,
+		y_rot = 0,
+		dist = 100,
+		foc = 20,
+		
+		free = true,
+		
+		pos_inv = nil,
+		look_inv = nil
+ }
+end
 
 --[[
 
@@ -467,7 +561,7 @@ function look(f)
 	return l
 end
 -->8
--- particles and colours
+-- scenes
 
 --[[
 	
@@ -492,16 +586,40 @@ function get_d_colour()
 	return rnd(colours)
 end
 
--- particles
+--[[
 
-function load_particles()
-	return p_explosion()
+	scene object
+	
+--]]
+
+function scene(n, pf)
+	return {
+		name = n,
+		p_func = pf,
+		
+		particles = {},
+		populate = function (self)
+			self.particles = 
+				self.p_func()
+		end
+	}
 end
 
-function p_grid()
+function scene_count()
+	return count(scenes)
+end
+
+function get_scene(i)
+	s = scenes[i]
+	if s == nil then
+		s = scene("untitled", {})
+	end
+	return s
+end
+
+p_grid = function ()
 	s = 40
 	grid = {}
-	update = function (self) end
 	for i = 1, 3 do
 		for j = 1, 3 do
 			for k = 1, 3 do
@@ -512,7 +630,7 @@ function p_grid()
 					 	s * (k - 2)),
 					 vec3(0, 0, 0),
 					 white,
-					 update
+					 p_update_lin
 					 )
 			end
 		end
@@ -520,28 +638,34 @@ function p_grid()
 	return grid
 end
 
-function p_explosion()
+p_explosion = function ()
+	ps = {}
 	ran = 5
 	mran = ran * 2 + 1
-	update = function (self)
-	 self.pos:sum(self.vel)
-	 self.vel:scale(0.9)
-	 self.vel:sum(
-	 	vec3(0, -2, 0))
-	end
-	ps = {}
-	for i = 1, 500 do
+	for i = 1, 150 do
 		ps[#ps + 1] = particle(
 			vec3(0, 0, 0),
 			vec3(rnd(mran) - ran, 
 				2 * rnd(mran),
 				rnd(mran) - ran),
 			get_colour(),
-			update
+			p_update_fall
 		)
 	end
 	return ps
 end
+
+scenes = {
+ scene("cube grid", p_grid),
+ scene("explosion", 
+ 	p_explosion)
+}
+
+--[[
+
+	particle object
+	
+--]]
 
 function particle(
 	_pos, _vel, _c, _update)
@@ -551,6 +675,81 @@ function particle(
 		c = _c,
 		update = _update
 	}
+end
+
+p_update_lin = function (self)
+	self.pos:sum(self.vel)
+end
+
+p_update_fall = function (self)
+ p_update_lin(self)
+ self.vel:scale(0.9)
+ self.vel:sum(
+ 	vec3(0, -2, 0))
+end
+-->8
+-- geometry
+
+function cube()
+	s = 50
+	fs = {}
+	for i in all({-1, 1}) do
+		for j in all({-1, 1}) do
+		 for k = 0, 2 do
+			 p1 = { i * s, -s, -s }
+			 p2 = { i * s, 
+			 	j * s, -j * s }
+			 p3 = { i * s, s, s }
+			 i1 = ((0 + k) % 3) + 1
+			 i2 = ((1 + k) % 3) + 1
+			 i3 = ((2 + k) % 3) + 1
+				fs[#fs + 1] = face(
+					vec3(p1[i1], 
+						p1[i2], p1[i3]),
+					vec3(p2[i1], 
+						p2[i2], p2[i3]),
+					vec3(p3[i1], 
+						p3[i2], p3[i3]),
+					8)
+			end
+		end
+	end
+	return fs
+end
+
+function sort(a, cmp)
+  for i = 1, count(a) do
+    j = i
+    while j > 1 
+    	and cmp(a[j-1],a[j]) do
+     a[j], a[j-1] = a[j-1], a[j]
+    	j = j - 1
+    end
+  end
+end
+
+function face(_p1, _p2, _p3, _c)
+	ps = {_p1, _p2, _p3}
+	sort(ps, function (a, b)
+			return a.y > b.y
+		end)
+	_1 = ps[1]
+	_2 = ps[2]
+	_3 = ps[3]
+	f = {
+		p1 = _1,
+		p2 = _2,
+		p3 = _3,
+		c = _c,
+		
+		e1 = _2:copy(),
+		e2 = _3:copy()
+	}
+	p1_inv = _1:copy()
+	p1_inv:scale(-1)
+	f.e1:sum(p1_inv)
+	f.e2:sum(p1_inv)
+	return f
 end
 __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
