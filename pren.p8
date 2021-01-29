@@ -37,6 +37,13 @@ end
 
 -- helper
  
+-- appendings lists to lists
+function add_all(a, b)
+	for x in all(b) do
+		a[#a + 1] = x
+	end
+end
+ 
 -- rotates the items of a list
 function cycle(l)
 	local i = #l
@@ -121,27 +128,9 @@ function scene()
 	end
 	
 	local d = function (s)
-		-- todo better! ..
-	 for f in all(s.room) do
-	 	local _,_1 = rasterise(s, f.p1)
-	 	local _,_2 = rasterise(s, f.p2)
-	 	local _,_3 = rasterise(s, f.p3)
-	 	for p in all({
-	 		{_1, _2}, {_1, _3}, 
-	 		{_2, _3}}) do
-	 		line(p[1][1], p[1][2],
-	 			p[2][1], p[2][2], f.c)
-	 	end
+		for o in all(s.objs) do
+			o:draw(s)
 	 end
-	 -- todo better! ^^
-		for p in all(s.objs) do
-		 local b, v = rasterise(s, p)
-		 if b then
-		 	pset(v[1], v[2], 9)
-		 end
-	 end
-	 -- rm
-	 s:update_camera()
 	end
 	
 	local r_c = function (s)
@@ -161,8 +150,7 @@ function scene()
 		cori = mat_id(),
 		focal = 20,
 
-		room = cube(100),
-		objs = grid(50),
+		objs = {},
 		
 		update = u,
 		draw = d,
@@ -170,12 +158,14 @@ function scene()
 		reset_camera = r_c,
 		update_camera = u_c
 	}
+	add_all(s.objs, cube(100))
+	add_all(s.objs, grid(50))
 	s:reset_camera(s)
 	return s
 end
 
 function rasterise(s, _p)
-	local v = { 0, 0 }
+	local v = { 0, 0, -1 }
 	local p = vec_clone(_p)
 	vec_sum(p, s.cpos, -1)
 	mat_apply(s.cori, p)
@@ -183,8 +173,9 @@ function rasterise(s, _p)
 		local k = s.focal / abs(p[3])
  	v[1] = flr(p[1] * k) 
  	v[2] = flr(-p[2] * k)
+ 	v[3] = 1 / -p[3]
 	end
-	return p[3] < 0, v
+	return v
 end
 
 function orient(o, p)
@@ -381,8 +372,9 @@ function grid(size)
 	for i = 1, 3 do
 		for j = 1, 3 do
 			for k = 1, 3 do
-				g[#g + 1] = { s * (i - 2), 
-					s * (j - 2), s * (k - 2) }
+				g[#g + 1] = point(
+					{ s * (i - 2), s * (j - 2), 
+					s * (k - 2) }, white)
 			end
 		end
 	end
@@ -411,6 +403,18 @@ function cube(size)
 end
 
 function face(_p1, _p2, _p3, _c)
+	local d = function (f, s)
+		local _1 = rasterise(s, f.p1)
+	 local _2 = rasterise(s, f.p2)
+	 local _3 = rasterise(s, f.p3)
+		for p in all({
+			{_1, _2}, {_1, _3}, 
+			{_2, _3}}) do
+			line(p[1][1], p[1][2],
+				p[2][1], p[2][2], f.c)
+ 	end
+	end
+	
 	local ps = {_p1, _p2, _p3}
 	sort(ps, index_sort(2))
 	local f = {
@@ -418,14 +422,26 @@ function face(_p1, _p2, _p3, _c)
 		p2 = vec_clone(ps[2]),
 		p3 = vec_clone(ps[3]),
 		c = _c,
-		e1 = vec_clone(ps[2]),
-		e2 = vec_clone(ps[3])
+		
+		draw = d
 	}
-	local m1 = vec_clone(ps[1])
-	vec_scale(m1, -1)
-	vec_sum(f.e1, m1)
-	vec_sum(f.e2, m1)
 	return f
+end
+
+function point(_v, _c)
+	local d = function (p, s)
+		local v = rasterise(s, p.v)
+		if v[3] > 0 then
+		 pset(v[1], v[2], p.c)
+		end
+	end
+
+	return {
+		v = _v,
+		c = _c,
+		
+		draw = d
+	}
 end
 __gfx__
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
